@@ -1,0 +1,78 @@
+#!/usr/bin/env python3.11
+
+import asyncio
+import multiprocessing
+import os
+import aioconsole
+import docker
+from simple_term_menu import TerminalMenu
+
+
+client = docker.from_env()
+logs_proc = None
+selected_container_id: str
+
+
+async def search_task():
+    global logs_proc, selected_container_id
+
+    while True:
+        input_text = await aioconsole.ainput()
+
+        run_process_logs_task(
+            container_id=selected_container_id,
+            search=input_text
+        )
+
+
+def run_process_logs_task(container_id: str, search: str = ''):
+    global logs_proc
+
+    if logs_proc:
+        logs_proc.terminate()
+
+    container = client.containers.get(container_id)
+
+    os.system('clear')
+    print(f"[CONTAINER: {container.name} | FILTER: {search}]")
+
+    logs_proc = multiprocessing.Process(target=logs_task, args=(container_id, search,), )
+    logs_proc.start()
+
+
+def logs_task(container_id: str, search: str = ''):
+    container = client.containers.get(container_id)
+
+    for line in container.logs(stream=True, tail=1000):
+        log_text = line.decode("utf-8").strip()
+
+        if search == '' or search in log_text:
+            print(log_text)
+
+
+def app():
+    global selected_container_id
+
+    os.system('clear')
+
+    choices: list[str] = []
+    hints: dict[str, str] = {}
+
+    for c in client.containers.list():
+        choices.append(c.name)
+        hints[c.name] = c.id
+
+    print('Select container:')
+
+    terminal_menu = TerminalMenu(choices)
+    selected_container_id = hints[choices[terminal_menu.show()]]
+
+    run_process_logs_task(container_id=selected_container_id)
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(search_task())
+    loop.run_forever()
+
+
+if __name__ == "__main__":
+    app()
