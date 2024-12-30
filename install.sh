@@ -8,15 +8,16 @@
 dependency_checking() {
 
   if  !(command -v git >/dev/null 2>&1) ||
-      !(command -v python3.11 >/dev/null 2>&1)
+      !(command -v python3 >/dev/null 2>&1) ||
+      !(command -v pip3 >/dev/null 2>&1)
   then
-      echo -e "\x1B[91mError! You must have software installed: git, python3.11\x1B[0m"
+      echo -e "\x1B[91mError! You must have software installed: git, python3, pip3\x1B[0m"
       exit
   fi
 }
 
 installation() {
-  pip3.11 install -r requirements.txt
+  pip3 install -r requirements.txt
   sudo cp dlogs /usr/local/bin
   chmod +x /usr/local/bin/dlogs
 
