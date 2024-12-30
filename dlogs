@@ -1,78 +1,97 @@
 #!/usr/bin/env python3
 
-import asyncio
-import multiprocessing
 import os
-import aioconsole
 import docker
+
+from threading import Thread
+from time import sleep
 from simple_term_menu import TerminalMenu
 
 
 client = docker.from_env()
-logs_proc = None
-selected_container_id: str
+selected_container_id = None
+log_printing_status = 'visible'
+search = None
 
 
-async def search_task():
-    global logs_proc, selected_container_id
+def search_input():
+    global log_printing_status, search
 
-    while True:
-        input_text = await aioconsole.ainput()
+    container = client.containers.get(container_id=selected_container_id)
 
-        run_process_logs_task(
-            container_id=selected_container_id,
-            search=input_text
-        )
+    input()
 
-
-def run_process_logs_task(container_id: str, search: str = ''):
-    global logs_proc
-
-    if logs_proc:
-        logs_proc.terminate()
-
-    container = client.containers.get(container_id)
-
-    os.system('clear')
-    print(f"[CONTAINER: {container.name} | FILTER: {search}]")
-
-    logs_proc = multiprocessing.Process(target=logs_task, args=(container_id, search,), )
-    logs_proc.start()
-
-
-def logs_task(container_id: str, search: str = ''):
-    container = client.containers.get(container_id)
-
-    for line in container.logs(stream=True, tail=1000):
-        log_text = line.decode("utf-8").strip()
-
-        if search == '' or search in log_text:
-            print(log_text)
-
-
-def app():
-    global selected_container_id
-
+    log_printing_status = 'hidden'
     os.system('clear')
 
-    choices: list[str] = []
-    hints: dict[str, str] = {}
+    print(f'> \x1B[92mCONTAINER:\x1B[0m {container.name}')
+    search = input('> \x1B[93mEnter filter:\x1B[0m ').strip()
 
-    for c in client.containers.list():
-        choices.append(c.name)
-        hints[c.name] = c.id
+    if not search:
+        search = None
 
-    print('Select container:')
+    log_printing_status = 'visible'
 
-    terminal_menu = TerminalMenu(choices)
-    selected_container_id = hints[choices[terminal_menu.show()]]
 
-    run_process_logs_task(container_id=selected_container_id)
+def logs_viewer(container_id):
+    global search
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(search_task())
-    loop.run_forever()
+    try:
+        while True:
+            if log_printing_status != 'visible':
+                sleep(0.1)
+                continue
+
+            os.system('clear')
+            container = client.containers.get(container_id=container_id)
+
+            if search:
+                search_visible_text = search
+                search_variants = search.split('||')
+            else:
+                search_visible_text = '\x1B[94m<all>\x1B[0m'
+                search_variants = []
+
+            print(f'> \x1B[92mCONTAINER:\x1B[0m {container.name}')
+            print(f'> \x1B[92mFILTER:\x1B[0m {search_visible_text} \x1B[93m[ENTER to change]\x1B[0m')
+
+            for line in container.logs(stream=True, tail=1000):
+                if log_printing_status != 'visible':
+                    break
+
+                log_text = line.decode("utf-8").strip()
+
+                if (
+                    not search_variants or
+                    any(search_variant in log_text for search_variant in search_variants)
+                ):
+                    print(log_text)
+
+    except (KeyboardInterrupt, Exception):
+        pass
 
 
 if __name__ == "__main__":
-    app()
+    try:
+        os.system('clear')
+
+        container_names = []
+        containers = {}
+
+        for c in client.containers.list():
+            container_names.append(c.name)
+            containers[c.name] = c
+
+        terminal_menu = TerminalMenu(
+            container_names,
+            title="Select container:"
+        )
+        selected_container_id = containers[container_names[terminal_menu.show()]].id
+
+        Thread(target=logs_viewer, args=(selected_container_id,), daemon=True).start()
+
+        while True:
+            search_input()
+
+    except (KeyboardInterrupt, Exception):
+        pass
